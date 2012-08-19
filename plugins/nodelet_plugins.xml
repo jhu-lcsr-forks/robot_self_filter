@@ -1,0 +1,8 @@
+<library path="lib/libself_filter_nodelet">
+  <class name="robot_self_filter/SelfFilterNodelet" type="robot_self_filter::SelfFilterNodelet" base_class_type="nodelet::Nodelet">
+    <description>
+      Nodelet for running the Robot Self-Filter.
+    </description>
+  </class>
+</library>
+

@@ -7,6 +7,19 @@ include($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
 #  Release        : w/o debug symbols, w/ optimization
 #  RelWithDebInfo : w/ debug symbols, w/ optimization
 #  MinSizeRel     : w/o debug symbols, w/ optimization, stripped binaries
+#set(ROS_BUILD_TYPE RelWithDebInfo)
+
+rosbuild_init()
+
+#set the default path for built executables to the "bin" directory
+set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
+#set the default path for built libraries to the "lib" directory
+set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
+
+#uncomment if you have defined messages
+#rosbuild_genmsg()
+#uncomment if you have defined services
+#rosbuild_gensrv()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 find_package(Eigen REQUIRED)
@@ -40,19 +53,25 @@ else()
   set(IS_ASSIMP3 0) # most likely not
 endif()
 
-rosbuild_init()
-
 rosbuild_add_boost_directories()
 
-rosbuild_add_library(robot_self_filter src/self_mask.cpp)
+# Lib
+rosbuild_add_library(robot_self_filter src/self_mask.cpp src/self_filter.cpp)
 rosbuild_add_openmp_flags(robot_self_filter)
 target_link_libraries(robot_self_filter assimp)
+rosbuild_link_boost(robot_self_filter signals)
 
+# Test
 rosbuild_add_executable (test_filter src/test_filter.cpp)
 rosbuild_add_openmp_flags (test_filter)
-target_link_libraries (test_filter robot_self_filter assimp)
+target_link_libraries (test_filter robot_self_filter)
 
-rosbuild_add_executable(self_filter src/self_filter.cpp)
-rosbuild_add_openmp_flags(self_filter)
-target_link_libraries(self_filter robot_self_filter assimp)
-rosbuild_link_boost(self_filter signals)
+# Node
+rosbuild_add_executable(self_filter_node src/self_filter_node.cpp)
+rosbuild_add_openmp_flags(self_filter_node)
+target_link_libraries(self_filter_node robot_self_filter)
+
+# Nodelet
+rosbuild_add_library(self_filter_nodelet src/self_filter_nodelet.cpp)
+rosbuild_add_openmp_flags(self_filter_nodelet)
+target_link_libraries(self_filter_nodelet robot_self_filter)

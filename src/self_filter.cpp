@@ -36,113 +36,85 @@
 
 #include <ros/ros.h>
 #include <sstream>
-#include "robot_self_filter/self_see_filter.h"
 #include <tf/message_filter.h>
 #include <message_filters/subscriber.h>
 
+#include <pcl_ros/point_cloud.h>
+#include <pcl/point_types.h>
 #include <pcl/ros/conversions.h>
 #include <pcl/filters/voxel_grid.h>
 
-class SelfFilter
+#include <robot_self_filter/self_see_filter.h>
+#include <robot_self_filter/self_filter.h>
+
+using namespace robot_self_filter;
+
+SelfFilter::SelfFilter(ros::NodeHandle nh) : 
+  nh_ (nh)
 {
-  public:
-    SelfFilter (void): nh_ ("~")
-    {
-      nh_.param<std::string> ("sensor_frame", sensor_frame_, std::string ());
-      nh_.param<double> ("subsample_value", subsample_param_, 0.01);
-      self_filter_ = new filters::SelfFilter<pcl::PointCloud<pcl::PointXYZ> > (nh_);
+  // Get filter parameters
+  nh_.param<std::string> ("sensor_frame", sensor_frame_, std::string ());
+  nh_.param<double> ("subsample_value", subsample_param_, 0.01);
 
-      sub_ = new message_filters::Subscriber<sensor_msgs::PointCloud2> (root_handle_, "cloud_in", 1);	
-      mn_ = new tf::MessageFilter<sensor_msgs::PointCloud2> (*sub_, tf_, "", 1);
+  // Construct the actual self-filter
+  self_filter_ = new filters::SelfFilter<pcl::PointCloud<pcl::PointXYZ> > (nh_);
 
-      //mn_ = new tf::MessageNotifier<sensor_msgs::PointCloud2>(tf_, boost::bind(&SelfFilter::cloudCallback, this, _1), "cloud_in", "", 1);
-      pointCloudPublisher_ = root_handle_.advertise<sensor_msgs::PointCloud2>("cloud_out", 1);
-      std::vector<std::string> frames;
-      self_filter_->getSelfMask()->getLinkNames(frames);
-      if (frames.empty())
-      {
-        ROS_DEBUG ("No valid frames have been passed into the self filter. Using a callback that will just forward scans on.");
-        no_filter_sub_ = root_handle_.subscribe<sensor_msgs::PointCloud2> ("cloud_in", 1, boost::bind(&SelfFilter::noFilterCallback, this, _1));
-      }
-      else
-      {
-        ROS_DEBUG ("Valid frames were passed in. We'll filter them.");
-        mn_->setTargetFrames (frames);
-        mn_->registerCallback (boost::bind (&SelfFilter::cloudCallback, this, _1));
-      }
-    }
-      
-    ~SelfFilter (void)
-    {
-      delete self_filter_;
-      delete mn_;
-      delete sub_;
-    }
-      
-  private:
-    void 
-      noFilterCallback (const sensor_msgs::PointCloud2ConstPtr &cloud)
-    {
-      pointCloudPublisher_.publish (cloud);
-      ROS_DEBUG ("Self filter publishing unfiltered frame");
-    }
-      
-    void cloudCallback (const sensor_msgs::PointCloud2ConstPtr &cloud2)
-    {
-      ROS_DEBUG ("Got pointcloud that is %f seconds old", (ros::Time::now() - cloud2->header.stamp).toSec ());
-      std::vector<int> mask;
-      ros::WallTime tm = ros::WallTime::now ();
+  // Set up message filters to delay message until TF data is available
+  sub_ = new message_filters::Subscriber<pcl::PointCloud<pcl::PointXYZ> > (root_handle_, "cloud_in", 1);	
+  mn_ = new tf::MessageFilter<pcl::PointCloud<pcl::PointXYZ> > (*sub_, tf_, "", 1);
 
-      pcl::PointCloud<pcl::PointXYZ> cloud, cloud_filtered;
-      pcl::fromROSMsg (*cloud2, cloud);
+  // Construct publisher
+  pointCloudPublisher_ = root_handle_.advertise<pcl::PointCloud<pcl::PointXYZ> >("cloud_out", 1);
 
-      if (subsample_param_ != 0)
-      {
-        pcl::PointCloud<pcl::PointXYZ> cloud_downsampled;
-        // Set up the downsampling filter
-        grid_.setLeafSize (subsample_param_, subsample_param_, subsample_param_);     // 1cm leaf size
-        grid_.setInputCloud (boost::make_shared <pcl::PointCloud<pcl::PointXYZ> > (cloud));
-        grid_.filter (cloud_downsampled);
+  // Get the frames in the URDF
+  std::vector<std::string> frames;
+  self_filter_->getSelfMask()->getLinkNames(frames);
 
-        self_filter_->updateWithSensorFrame (cloud_downsampled, cloud_filtered, sensor_frame_);
-      } 
-      else 
-      {
-        self_filter_->updateWithSensorFrame (cloud, cloud_filtered, sensor_frame_);
-      }      
+  if (frames.empty()) {
+    ROS_WARN ("No valid URDF frames available, not performing filtering.");
+    no_filter_sub_ = root_handle_.subscribe<pcl::PointCloud<pcl::PointXYZ> >("cloud_in", 1, boost::bind(&SelfFilter::noFilterCallback, this, _1));
+  } else {
+    ROS_INFO ("Received %d URDF frames to filter out of the point cloud.", (int)frames.size() );
+    mn_->setTargetFrames (frames);
+    mn_->registerCallback (boost::bind (&SelfFilter::cloudCallback, this, _1));
+  }
+}
 
-      double sec = (ros::WallTime::now() - tm).toSec ();
-
-      sensor_msgs::PointCloud2 out;
-      pcl::toROSMsg (cloud_filtered, out);
-      pointCloudPublisher_.publish (out);
-      ROS_DEBUG ("Self filter: reduced %d points to %d points in %f seconds", (int)cloud.points.size(), (int)cloud_filtered.points.size (), sec);
-    }
-
-    tf::TransformListener                                 tf_;
-    //tf::MessageNotifier<sensor_msgs::PointCloud>           *mn_;
-    ros::NodeHandle                                       nh_, root_handle_;
-
-    tf::MessageFilter<sensor_msgs::PointCloud2>           *mn_;
-    message_filters::Subscriber<sensor_msgs::PointCloud2> *sub_;
-
-    filters::SelfFilter<pcl::PointCloud<pcl::PointXYZ> > *self_filter_;
-    std::string sensor_frame_;
-    double subsample_param_;
-
-    ros::Publisher                                        pointCloudPublisher_;
-    ros::Subscriber                                       no_filter_sub_;
-
-    pcl::VoxelGrid<pcl::PointXYZ>                         grid_;
-};
-
-int 
-  main (int argc, char **argv)
+SelfFilter::~SelfFilter()
 {
-  ros::init (argc, argv, "self_filter");
+  delete self_filter_;
+  delete mn_;
+  delete sub_;
+}
 
-  SelfFilter s;
-  ros::spin ();
-    
-  return (0);
+void SelfFilter::noFilterCallback(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cloud)
+{
+  pointCloudPublisher_.publish(cloud);
+  ROS_DEBUG("Self filter publishing unfiltered frame");
+}
+
+void SelfFilter::cloudCallback(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cloud)
+{
+  ROS_DEBUG ("Got pointcloud that is %f seconds old", (ros::Time::now() - cloud->header.stamp).toSec ());
+  std::vector<int> mask;
+  ros::WallTime tm = ros::WallTime::now ();
+
+  boost::shared_ptr<pcl::PointCloud<pcl::PointXYZ> > cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>());
+
+  if (subsample_param_ != 0) {
+    boost::shared_ptr<pcl::PointCloud<pcl::PointXYZ> > cloud_downsampled(new pcl::PointCloud<pcl::PointXYZ>());
+    // Set up the downsampling filter
+    grid_.setLeafSize (subsample_param_, subsample_param_, subsample_param_);     // 1cm leaf size
+    grid_.setInputCloud (cloud);
+    grid_.filter (*cloud_downsampled);
+
+    self_filter_->updateWithSensorFrame (*cloud_downsampled, *cloud_filtered, sensor_frame_);
+  } else {
+    self_filter_->updateWithSensorFrame (*cloud, *cloud_filtered, sensor_frame_);
+  }      
+
+  double sec = (ros::WallTime::now() - tm).toSec ();
+
+  pointCloudPublisher_.publish (cloud_filtered);
+  ROS_DEBUG ("Self filter: reduced %d points to %d points in %f seconds", (int)cloud->points.size(), (int)cloud_filtered->points.size (), sec);
 }
