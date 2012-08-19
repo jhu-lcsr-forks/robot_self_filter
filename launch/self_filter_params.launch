@@ -1,10 +1,4 @@
-<launch>  
-  <node pkg="robot_self_filter" type="self_filter_node" name="self_filter_node" respawn="true" output="screen">
-    <!-- The topic for the input cloud -->
-    <remap from="cloud_in" to="tilt_scan_cloud" />
-    <!-- The topic for the output cloud -->
-    <remap from="cloud_out" to="tilt_scan_cloud_raytest" />
-
+<launch>
     <!-- The frame of the sensor used to obtain the data to be filtered; This
          parameter is optional. If it is not specified, shadow
          points will be considered outside -->
@@ -49,6 +43,4 @@
       r_shoulder_lift_link
       base_laser_link
       base_link" />
-
-  </node>
-</launch>
+  </launch>

@@ -1,0 +1,13 @@
+<launch>  
+  <node pkg="nodelet" type="nodelet" name="standalone_nodelet"  args="manager" output="screen"/>
+
+  <node pkg="nodelet" type="nodelet" name="self_filter_nodelet" args="load robot_self_filter/SelfFilterNodelet standalone_nodelet" output="screen">
+    <!-- The topic for the input cloud -->
+    <remap from="cloud_in" to="/camera/depth_registered/points" />
+    <!-- The topic for the output cloud -->
+    <remap from="cloud_out" to="/camera/depth_registered/points_self_filtered" />
+  </node>                 
+
+  <include ns="self_filter_nodelet" file="$(find robot_self_filter)/launch/self_filter_params.launch"/>
+
+</launch>

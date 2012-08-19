@@ -1,0 +1,10 @@
+<launch>  
+  <node pkg="robot_self_filter" type="self_filter_node" name="self_filter_node" respawn="true" output="screen">
+    <!-- The topic for the input cloud -->
+    <remap from="cloud_in" to="/camera/depth_registered/points" />
+    <!-- The topic for the output cloud -->
+    <remap from="cloud_out" to="/camera/depth_registered/points_self_filtered" />
+  </node>
+
+  <include ns="self_filter_node" file="$(find robot_self_filter)/launch/self_filter_params.launch"/>
+</launch>
